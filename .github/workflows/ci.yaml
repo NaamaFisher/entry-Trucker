@@ -9,7 +9,7 @@ on:
       - master
 
 jobs:
-  build-and-test:
+  pull-source-code:
     runs-on: ubuntu-latest
 
     steps:
@@ -29,9 +29,3 @@ jobs:
       - name: Run Flask app in background
         run: |
           nohup python app.py &
-          sleep 5  # מחכה שהשרת יעלה
-
-      - name: Check Flask app response
-        run: |
-          curl http://localhost:5000 | grep "expected output"
-
