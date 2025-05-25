@@ -1,0 +1,45 @@
+name: EntryTracker CI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. שלב הורדת הקוד
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. התקנת Python וספריות
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.10
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 3. הפעלת האפליקציה ובדיקת curl (בדיקת יחידה)
+      - name: Run Unit Test
+        run: |
+          python app.py &
+          sleep 5
+          curl http://localhost:5000
+
+      # 4. בניית Docker Image
+      - name: Build Docker Image
+        run: docker build -t entrytracker:latest .
+
+      # 5. הרצת Docker Compose (בדיקות End-to-End)
+      - name: Run E2E with Docker Compose
+        run: |
+          docker-compose up -d
+          sleep 10
+          curl http://localhost:5000
+
