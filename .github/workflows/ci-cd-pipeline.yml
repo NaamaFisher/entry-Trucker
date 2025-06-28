@@ -71,7 +71,14 @@ jobs:
         kubectl apply -f k8s/entrytracker-deployment.yaml
         kubectl apply -f k8s/entrytracker-service.yaml
 
-        kubectl wait --for=condition=available deployment/entrytracker --timeout=300s
+        kubectl wait --for=condition=available deployment/entrytracker --timeout=300s || {
+          echo "❌ Deployment did not become available within 300 seconds, showing pods status and logs..."
+          kubectl get pods -l app=entrytracker
+          kubectl describe pod -l app=entrytracker
+          kubectl logs -l app=entrytracker --tail=30
+          exit 1
+        }
+
         kubectl wait --for=condition=ready pod -l app=entrytracker --timeout=300s
 
     - name: Verify production-ready stack
