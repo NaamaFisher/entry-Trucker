@@ -17,6 +17,21 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Run unit tests with pytest
+      run: |
+        export PYTHONPATH=.
+        pytest tests/
+
     - name: Generate image tag
       id: generate-tag
       run: |
@@ -37,8 +52,11 @@ jobs:
         REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         IMAGE_NAME="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}"
 
-        docker build -t ${IMAGE_NAME}:${TAG} .
-        docker tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
+        echo "=== CI: Retagging and Publishing EntryTracker Image ==="
+
+        docker pull hadassigron1/entrytracker:latest
+        docker tag hadassigron1/entrytracker:latest ${IMAGE_NAME}:${TAG}
+        docker tag hadassigron1/entrytracker:latest ${IMAGE_NAME}:latest
 
         docker push ${IMAGE_NAME}:${TAG}
         docker push ${IMAGE_NAME}:latest
@@ -63,7 +81,7 @@ jobs:
       run: |
         TAG="${{ steps.generate-tag.outputs.tag }}"
         REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        IMAGE="ghcr.io/${REPO_OWNER_LOWER}/entrytracker:${TAG}"
+        IMAGE="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}:${TAG}"
 
         sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/entrytracker-deployment.yaml
 
@@ -71,14 +89,7 @@ jobs:
         kubectl apply -f k8s/entrytracker-deployment.yaml
         kubectl apply -f k8s/entrytracker-service.yaml
 
-        kubectl wait --for=condition=available deployment/entrytracker --timeout=300s || {
-          echo "❌ Deployment did not become available within 300 seconds, showing pods status and logs..."
-          kubectl get pods -l app=entrytracker
-          kubectl describe pod -l app=entrytracker
-          kubectl logs -l app=entrytracker --tail=30
-          exit 1
-        }
-
+        kubectl wait --for=condition=available deployment/entrytracker --timeout=300s
         kubectl wait --for=condition=ready pod -l app=entrytracker --timeout=300s
 
     - name: Verify production-ready stack
@@ -86,24 +97,43 @@ jobs:
         kubectl get all
         kubectl get secrets,configmaps
 
+        echo "Testing MySQL connectivity..."
         kubectl run mysql-client --image=mysql:5.7 -it --rm --restart=Never -- \
-          mysql -h mysql-service -u app_user -papp_password -D entrytracker_db -e "SHOW DATABASES;"
+          mysql -h mysql-service -u app_user -papp_password -D entrytracker_db -e "SHOW TABLES;"
 
-        kubectl describe statefulset mysql
-        kubectl get pvc
-
+        echo "Testing EntryTracker..."
         kubectl port-forward deployment/entrytracker 5000:5000 &
-        PORT_FORWARD_PID=$!
         sleep 20
-
         if curl -f http://localhost:5000/; then
-          echo "EntryTracker application: SUCCESS"
+          echo "✅ EntryTracker is up and responding!"
         else
-          echo "Application failed"
+          echo "❌ EntryTracker failed to respond."
           exit 1
         fi
 
-        kill $PORT_FORWARD_PID
+    - name: Manual deployment instructions
+      run: |
+        TAG="${{ steps.generate-tag.outputs.tag }}"
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
-        kubectl describe pod -l app=entrytracker | grep -A 5 "Limits:"
-        kubectl describe pod mysql-0 | grep -A 5 "Limits:"
+        echo ""
+        echo "=== Manual Deployment Instructions (Killercoda) ==="
+        echo "1. Clone your repo:"
+        echo "   git clone https://github.com/${{ github.repository }}.git"
+        echo "   cd entrytracker"
+        echo "   sed -i 's|IMAGE_PLACEHOLDER|ghcr.io/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}:${TAG}|g' k8s/entrytracker-deployment.yaml"
+        echo ""
+        echo "2. Deploy MySQL:"
+        echo "   kubectl apply -f k8s/mysql-secret.yaml"
+        echo "   kubectl apply -f k8s/mysql-statefulset.yaml"
+        echo "   kubectl apply -f k8s/mysql-service.yaml"
+        echo "   kubectl wait --for=condition=ready pod/mysql-0 --timeout=300s"
+        echo ""
+        echo "3. Deploy EntryTracker:"
+        echo "   kubectl apply -f k8s/entrytracker-configmap.yaml"
+        echo "   kubectl apply -f k8s/entrytracker-deployment.yaml"
+        echo "   kubectl apply -f k8s/entrytracker-service.yaml"
+        echo ""
+        echo "4. Get the NodePort:"
+        echo "   kubectl get service entrytracker-service"
+        echo "   # Access via NodePort in Killercoda browser"
