@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: entrytracker
-        image: image: ghcr.io/naamafisher/entrytracker:build-20250629-20bc6f1
+        image: "ghcr.io/naamafisher/entrytracker:build-20250629-20bc6f1"
         ports:
         - containerPort: 5000
         env:
