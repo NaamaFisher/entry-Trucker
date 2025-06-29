@@ -24,35 +24,8 @@ jobs:
 
     - name: Install Python dependencies
       run: |
-        pip install -r requirements.txt || true  # במידה ואין קובץ דרישות
+        pip install -r requirements.txt || true
         pip install pytest || true
-
-    - name: Generate image tag
-      id: generate-tag
-      run: |
-        TAG="build-$(date +%Y%m%d)-${GITHUB_SHA:0:7}"
-        echo "tag=${TAG}" >> $GITHUB_OUTPUT
-        echo "Generated tag: ${TAG}"
-
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GHCR_TOKEN }}
-
-    - name: Build and push EntryTracker image
-      run: |
-        TAG="${{ steps.generate-tag.outputs.tag }}"
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        IMAGE_NAME="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}"
-
-        docker pull hadassigron1/entrytracker:latest
-        docker tag hadassigron1/entrytracker:latest ${IMAGE_NAME}:${TAG}
-        docker tag hadassigron1/entrytracker:latest ${IMAGE_NAME}:latest
-
-        docker push ${IMAGE_NAME}:${TAG}
-        docker push ${IMAGE_NAME}:latest
 
     - name: Create kind cluster for testing
       run: |
@@ -70,14 +43,8 @@ jobs:
         kubectl apply -f k8s/mysql-service.yaml
         kubectl wait --for=condition=ready pod/mysql-0 --timeout=300s
 
-    - name: Deploy EntryTracker application
+    - name: Deploy EntryTracker application (using public image)
       run: |
-        TAG="${{ steps.generate-tag.outputs.tag }}"
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        IMAGE="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}:${TAG}"
-
-        sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/entrytracker-deployment.yaml
-
         kubectl apply -f k8s/entrytracker-configmap.yaml
         kubectl apply -f k8s/entrytracker-deployment.yaml
         kubectl apply -f k8s/entrytracker-service.yaml
@@ -97,30 +64,3 @@ jobs:
         echo "📄 Logs from EntryTracker pod:"
         POD=$(kubectl get pod -l app=entrytracker -o jsonpath="{.items[0].metadata.name}")
         kubectl logs $POD || true
-
-    - name: Manual deployment instructions
-      run: |
-        TAG="${{ steps.generate-tag.outputs.tag }}"
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-
-        echo ""
-        echo "=== Manual Deployment Instructions (Killercoda) ==="
-        echo "1. Clone your repo:"
-        echo "   git clone https://github.com/${{ github.repository }}.git"
-        echo "   cd entrytracker"
-        echo "   sed -i 's|IMAGE_PLACEHOLDER|ghcr.io/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}:${TAG}|g' k8s/entrytracker-deployment.yaml"
-        echo ""
-        echo "2. Deploy MySQL:"
-        echo "   kubectl apply -f k8s/mysql-secret.yaml"
-        echo "   kubectl apply -f k8s/mysql-statefulset.yaml"
-        echo "   kubectl apply -f k8s/mysql-service.yaml"
-        echo "   kubectl wait --for=condition=ready pod/mysql-0 --timeout=300s"
-        echo ""
-        echo "3. Deploy EntryTracker:"
-        echo "   kubectl apply -f k8s/entrytracker-configmap.yaml"
-        echo "   kubectl apply -f k8s/entrytracker-deployment.yaml"
-        echo "   kubectl apply -f k8s/entrytracker-service.yaml"
-        echo ""
-        echo "4. Get the NodePort:"
-        echo "   kubectl get service entrytracker-service"
-        echo "   # Access via NodePort in Killercoda browser"
